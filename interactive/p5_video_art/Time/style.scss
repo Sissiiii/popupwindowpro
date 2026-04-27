@@ -1,0 +1,64 @@
+
+// Particle properties
+$particle-count: 80;
+$particle-size: 8px;
+$animation-duration: 1.5s;
+
+// Colors
+$color-1: #ffbe0b;
+$color-2: #fb5607;
+$color-3: #ff006e;
+
+// Helper function to create a single particle's box-shadow
+@function particle($i) {
+  $x: random(10) - 5 + px;
+  $y: random(40) * -1 + px;
+  $color: nth(($color-1, $color-2, $color-3), random(3));
+  @return #{$x} #{$y} 0 #{$color};
+}
+
+// Generate the box-shadows for all particles
+$particles: ();
+@for $i from 1 through $particle-count {
+  $particles: append($particles, particle($i), comma);
+}
+
+.separator {
+    position: relative;
+    width: 20px;
+    height: 80px;
+    // Hide the container itself
+}
+
+.separator::before, .separator::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    width: $particle-size;
+    height: $particle-size;
+    border-radius: 50%;
+    animation-name: rise;
+    animation-duration: $animation-duration;
+    animation-timing-function: ease-in;
+    animation-iteration-count: infinite;
+    box-shadow: $particles;
+}
+
+.separator::before { 
+    top: 60%;
+}
+.separator::after { 
+    top: 75%;
+    animation-delay: $animation-duration / 2;
+}
+
+@keyframes rise {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-40px) scale(0);
+    opacity: 0;
+  }
+}

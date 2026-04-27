@@ -1,0 +1,1866 @@
+<!DOCTYPE html> 
+ <html lang="en"> 
+ <head> 
+   <meta charset="UTF-8" /> 
+   <meta name="viewport" content="width=device-width, initial-scale=1.0" /> 
+   <title>Body Segmentation Number Overlay</title> 
+ 
+   <!-- p5.js --> 
+   <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script> 
+ 
+   <!-- ml5.js 1.x --> 
+   <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script> 
+ 
+   <style> 
+     html, body { 
+       margin: 0; 
+       padding: 0; 
+       background: black; 
+       overflow: hidden; 
+     } 
+     canvas { 
+       display: block; 
+     }
+     .circular-text-container {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        width: 400px;
+        height: 400px;
+        pointer-events: none;
+        display: none; /* Initially hidden */
+        z-index: 100;
+      }
+
+      .circular-text-svg {
+        width: 100%;
+        height: 100%;
+        animation: rotate 30s linear infinite;
+      }
+
+      @keyframes rotate {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .circular-text {
+        font-family: 'mnicmp-light', sans-serif;
+        font-size: 18pt;
+        fill: cyan;
+        /* Simple glow effect using filter */
+        filter: drop-shadow(0 0 5px cyan) drop-shadow(0 0 10px cyan);
+      }
+   </style> 
+ </head> 
+ <body> 
+    <div id="circular-text-container" class="circular-text-container">
+      <svg class="circular-text-svg" viewBox="0 0 400 400">
+        <path id="text-path" d="M 200, 200 m -150, 0 a 150,150 0 1,1 300,0 a 150,150 0 1,1 -300,0" fill="none" stroke="none" />
+        <text class="circular-text">
+          <textPath id="text-path-element" href="#text-path" startOffset="0%"></textPath>
+        </text>
+      </svg>
+    </div>
+    <!-- Containers for stored animations -->
+    <div id="stored-container-0" class="circular-text-container">
+        <svg class="circular-text-svg" viewBox="0 0 400 400">
+            <path id="stored-path-0" d="M 200, 200 m -150, 0 a 150,150 0 1,1 300,0 a 150,150 0 1,1 -300,0" fill="none" stroke="none" />
+            <text class="circular-text"><textPath id="stored-text-path-0" href="#stored-path-0"></textPath></text>
+        </svg>
+    </div>
+    <div id="stored-container-1" class="circular-text-container">
+        <svg class="circular-text-svg" viewBox="0 0 400 400">
+            <path id="stored-path-1" d="M 200, 200 m -150, 0 a 150,150 0 1,1 300,0 a 150,150 0 1,1 -300,0" fill="none" stroke="none" />
+            <text class="circular-text"><textPath id="stored-text-path-1" href="#stored-path-1"></textPath></text>
+        </svg>
+    </div>
+    <div id="stored-container-2" class="circular-text-container">
+        <svg class="circular-text-svg" viewBox="0 0 400 400">
+            <path id="stored-path-2" d="M 200, 200 m -150, 0 a 150,150 0 1,1 300,0 a 150,150 0 1,1 -300,0" fill="none" stroke="none" />
+            <text class="circular-text"><textPath id="stored-text-path-2" href="#stored-path-2"></textPath></text>
+        </svg>
+    </div>
+    <div id="stored-container-3" class="circular-text-container">
+        <svg class="circular-text-svg" viewBox="0 0 400 400">
+            <path id="stored-path-3" d="M 200, 200 m -150, 0 a 150,150 0 1,1 300,0 a 150,150 0 1,1 -300,0" fill="none" stroke="none" />
+            <text class="circular-text"><textPath id="stored-text-path-3" href="#stored-path-3"></textPath></text>
+        </svg>
+    </div>
+    <div id="stored-container-4" class="circular-text-container">
+        <svg class="circular-text-svg" viewBox="0 0 400 400">
+            <path id="stored-path-4" d="M 200, 200 m -150, 0 a 150,150 0 1,1 300,0 a 150,150 0 1,1 -300,0" fill="none" stroke="none" />
+            <text class="circular-text"><textPath id="stored-text-path-4" href="#stored-path-4"></textPath></text>
+        </svg>
+    </div>
+
+   <script> 
+     let video; 
+     let bodySegmentation; 
+     let segmentation = null;
+     let timeFont;
+     let computerImg;
+     let smallComputerImg; // For the new start screen
+     let powerButtonImg; // For the new start screen
+     let typingFont;
+
+     let textBuffer = ''; // To store user's typing
+     let personPixels = [];  // Cache for person pixel coordinates
+     let activeIframe = null;
+     let iframeCloseButton = null;
+     let timeClickableArea = { x: 0, y: 0, w: 0, h: 0 }; // For the new time click feature
+     let runningPowerButton = { x: 0, y: 0, w: 0, h: 0 }; // Button on the main screen
+
+     // Circular Text Animation
+    let circularTextContainer;
+    let textPathElement;
+    let collectedInputs = [];
+    const MAX_STORED_ANIMATIONS = 5;
+    let storedAnimations = [];
+    let storedContainers = [];
+    let storedTextPaths = [];
+    let robotButton = { x: 0, y: 0, w: 0, h: 0 };
+
+
+     let runningSubState = 'initial'; // 'initial', 'zipClicked', 'fileClicked', 'mcqDone'
+     let zipFileButton = { x: 0, y: 0, w: 0, h: 0 };
+     let fileButton = { x: 0, y: 0, w: 0, h: 0 };
+     let lastZipClickTime = 0;
+     const DOUBLE_CLICK_INTERVAL = 500; // ms
+
+     let appState = 'start'; // 'start', 'loading', 'running', 'fadingOut', 'loadingFadeOut'
+     let fadeOutAlpha = 0;
+     let loadingGif;
+     let loadingStartTime = 0;
+     let popupImg;
+     let okButtonImg;
+     let question1Img;
+     let question2Img; 
+     let mcqPopupImg; // For multi-choice questions
+     let nextButtonImg;
+     let warningImg;
+     let closeButtonImg;
+     let numberButtonImgs = []; // To store button images 1-9
+     let emptyButtonImg; // For the new red buttons
+     let zipFileImg;
+     let fileImg;
+       let robotImg;
+
+     let warnings = []; // To store active warning popups
+     let warningQueue = [];
+     let lastWarningTime = 0;
+     const WARNING_INTERVAL = 300; // ms between each warning popup
+
+     let question1_answer = '';
+     let question2_answer = ''; // For the second question
+
+     let popupState = 'none'; // 'none', 'welcome', 'question1', 'question2', 'multiChoiceQuestion', 'punishing'
+     let previousPopupState = 'none';
+     let popupStartTime = 0;
+
+     // Configuration for the 10 multi-choice questions
+     const multiChoiceQuestions = [
+       { buttonCount: 2, redButtonCount: 1, layout: 'random' },
+       { buttonCount: 3, redButtonCount: 1, layout: 'random' },
+       { buttonCount: 5, redButtonCount: 2, layout: 'random' },
+       { buttonCount: 5, redButtonCount: 2, layout: 'random' },
+       { buttonCount: 8, redButtonCount: 3, layout: 'random' },
+       { buttonCount: 8, redButtonCount: 3, layout: 'random' },
+       { buttonCount: 8, redButtonCount: 4, layout: 'random' },
+       { buttonCount: 21, redButtonCount: 5, layout: 'compactGrid' },
+       { buttonCount: 21, redButtonCount: 6, layout: 'compactGrid' },
+       { buttonCount: 21, redButtonCount: 7, layout: 'compactGrid' }
+     ];
+     let currentMultiChoiceIndex = 0;
+     let currentButtons = []; // Store buttons for the current MCQ
+ 
+     let boxes = [];
+
+     // ===== Adjustable settings =====
+     let cellSize = 22;          // 数字网格大小，越大越马赛克
+     let personThreshold = 10;   // mask 判断阈值 
+     let mirrorMode = false;      // 是否镜像 (默认为 false，按 'M' 键可切换) 
+     let randomDigits = false;   // true = 随机数字，false = 按亮度映射
+     let progressIncrement = 0.3;      // 进度增长速度
+     let buttonScale = 0.4;          // 开始按钮的缩放比例
+     let loadingGifScale = 0.15;       // 加载动画的缩放比例
+     let popupScale = 0.3;             // 欢迎弹窗图片的缩放比例
+     let question1PopupScale = 0.3;    // 问题1弹窗图片的缩放比例
+     let question2PopupScale = 0.3;   // 问题2弹窗图片的缩放比例
+     let okButtonScale = 0.6;          // OK 按钮的缩放比例
+     let nextButtonScale = 0.7;        // Next 按钮的缩放比例
+     let warningScale = 0.138;          // Warning 弹窗的缩放比例
+     let closeButtonScale = 0.8;       // 关闭按钮的缩放比例
+     let questionInputOffsetX = 0.30;  // 问题输入框的水平偏移
+     let questionInputOffsetY = 0.50;  // 问题输入框的垂直偏移
+     const okButtonOffsetY = -0.3;     // OK 按钮相对于弹窗高度的垂直偏移
+
+     // --- Keyboard input state ---
+     let keyPressState = {
+       key: null,
+       keyCode: null,
+       isPressed: false,
+       pressTime: 0,
+       repeatCount: 0
+     };
+     const KEY_REPEAT_DELAY = 400; // ms, how long to wait before repeating
+     const KEY_REPEAT_RATE = 40;  // ms, how fast to repeat
+     // ============================== 
+
+       function preload() { 
+       bodySegmentation = ml5.bodySegmentation("SelfieSegmentation", { 
+         maskType: "person" 
+       });
+       timeFont = loadFont('../font/FZYouSTJW-EB.TTF');
+       computerImg = loadImage('../img/大屏幕2.png');
+       smallComputerImg = loadImage('../img/小电脑1.png');
+       powerButtonImg = loadImage('../img/开机按钮.png');
+       typingFont = loadFont('../font/mnicmpdiamond-regular.otf');
+       loadingGif = loadImage('../img/loading.gif');
+       popupImg = loadImage('../img/弹窗欢迎.png');
+       okButtonImg = loadImage('../img/按钮ok.png');
+       question1Img = loadImage('../img/弹窗问题1名字.png');
+       question2Img = loadImage('../img/问题new-05.png');
+       mcqPopupImg = loadImage('../img/问题弹窗空.png');
+       nextButtonImg = loadImage('../img/按钮next.png');
+       warningImg = loadImage('../img/问题new-07.png');
+       closeButtonImg = loadImage('../img/按钮叉号.png');
+
+       // Load number buttons 1-9
+       for (let i = 1; i <= 9; i++) {
+         numberButtonImgs.push(loadImage(`../img/按钮${i}.png`));
+       }
+       emptyButtonImg = loadImage('../img/按钮空.png');
+       zipFileImg = loadImage('../img/zipfile.png');
+       fileImg = loadImage('../img/file.png');
+       robotImg = loadImage('../img/robot.png');
+     } 
+ 
+     function setup() { 
+       createCanvas(windowWidth, windowHeight); 
+       pixelDensity(1); 
+       textStyle(BOLD);
+       textAlign(CENTER, CENTER); 
+
+       // Get references to circular text elements
+      circularTextContainer = select('#circular-text-container');
+      textPathElement = select('#text-path-element');
+      for (let i = 0; i < MAX_STORED_ANIMATIONS; i++) {
+        storedContainers.push(select(`#stored-container-${i}`));
+        storedTextPaths.push(select(`#stored-text-path-${i}`));
+      }
+
+
+       // The loop starts automatically now for the animation
+ 
+       video = createCapture(VIDEO); 
+       video.size(640, 480);
+       video.hide(); 
+
+       // Define the properties for the four boxes
+       const boxWidth = width * 0.15;
+       const boxHeight = height * 0.12;
+       const eighth = width / 8;
+
+       boxes = [
+         // Box 1: Bottom-left
+         {
+           x: 20,
+           y: height,
+           targetY: height,
+           lidAngle: 0,
+           targetLidAngle: 0,
+           width: boxWidth,
+           height: boxHeight,
+           triggerZone: { start: 0, end: eighth },
+           position: 'bottom',
+           progress: 0,
+           isComplete: false,
+         },
+         // Box 2: Top-left
+         {
+           x: eighth * 2 + (eighth - boxWidth) / 2,
+           y: -boxHeight,
+           targetY: -boxHeight,
+           lidAngle: 0,
+           targetLidAngle: 0,
+           width: boxWidth,
+           height: boxHeight,
+           triggerZone: { start: eighth * 2, end: eighth * 3 },
+           position: 'top',
+           progress: 0,
+           isComplete: false,
+         },
+         // Box 3: Bottom-right
+         {
+           x: eighth * 5 + (eighth - boxWidth) / 2,
+           y: height,
+           targetY: height,
+           lidAngle: 0,
+           targetLidAngle: 0,
+           width: boxWidth,
+           height: boxHeight,
+          triggerZone: { start: eighth * 5, end: eighth * 6 },
+          position: 'bottom',
+          progress: 0,
+          isComplete: false,
+         },
+         // Box 4: Top-right
+         {
+           x: width - eighth * 2 + (eighth - boxWidth) / 2,
+           y: -boxHeight,
+           targetY: -boxHeight,
+           lidAngle: 0,
+           targetLidAngle: 0,
+           width: boxWidth,
+           height: boxHeight,
+          triggerZone: { start: eighth * 6, end: eighth * 7 },
+          position: 'top',
+          progress: 0,
+          isComplete: false,
+         },
+       ]; 
+ 
+       bodySegmentation.detectStart(video, gotResults); 
+     } 
+
+     function gotResults(result) { 
+       segmentation = result; 
+       if (appState === 'running' && segmentation && segmentation.mask) {
+         updatePersonPixels();
+       }
+     } 
+
+     function updatePersonPixels() {
+      personPixels = [];
+      segmentation.mask.loadPixels();
+
+      const { w: drawWidth, h: drawHeight } = getVideoRect();
+      let sx = drawWidth / segmentation.mask.width;
+      let sy = drawHeight / segmentation.mask.height;
+      const stepX = floor(max(1, cellSize / sx));
+      const stepY = floor(max(1, (cellSize + 2) / sy));
+
+      for (let y = 0; y < segmentation.mask.height; y += stepY) {
+        for (let x = 0; x < segmentation.mask.width; x += stepX) {
+          const index = (x + y * segmentation.mask.width) * 4;
+          const ma = segmentation.mask.pixels[index + 3];
+          let isPerson = ma > personThreshold;
+
+          if (!isPerson) {
+            personPixels.push({ x: x, y: y });
+          }
+        }
+      }
+    }
+
+     function getVideoRect() {
+      const targetWidth = width * 0.51;
+      const targetHeight = height * 0.54;
+      const targetX = (width - targetWidth) / 2;
+      const targetY = (height - targetHeight) / 3.7;
+
+      const videoRatio = video.width / video.height;
+      const targetRatio = targetWidth / targetHeight;
+      let drawWidth, drawHeight, drawX, drawY;
+
+      if (targetRatio > videoRatio) {
+        drawHeight = targetHeight;
+        drawWidth = drawHeight * videoRatio;
+        drawX = targetX + (targetWidth - drawWidth) / 2;
+        drawY = targetY;
+      } else {
+        drawWidth = targetWidth;
+        drawHeight = drawWidth / videoRatio;
+        drawX = targetX;
+        drawY = targetY + (targetHeight - drawHeight) / 2;
+      }
+      return { x: drawX, y: drawY, w: drawWidth, h: drawHeight };
+    }
+
+     function draw() { 
+       switch (appState) {
+         case 'start':
+           drawStartScreen();
+           break;
+         case 'loading':
+           drawLoadingScreen();
+           break;
+         case 'running':
+           drawRunningScreen();
+           break;
+         case 'fadingOut':
+           drawFadingOutScreen();
+           break;
+         case 'loadingFadeOut':
+           drawLoadingFadeOutScreen();
+           break;
+       }
+     }
+
+function drawRunningScreen() {
+           // Main app logic
+           background(0); 
+
+           // Draw the computer image as a background
+           if (computerImg) {
+            // 1. Draw the computer image and get its *actual* on-screen bounds
+            const actualCompBounds = drawComputerImage();
+
+            // 2. Add noise overlay to the *actual* image area
+            if (actualCompBounds) {
+                drawNoiseOverlay(actualCompBounds);
+            }
+            
+            // 3. Re-calculate the button position using the user's original (and separate) logic
+            const btnCalcImgRatio = computerImg.width / computerImg.height;
+            const btnCalcCanvasRatio = width / height;
+            const btnCalcScaleFactor = 4; // This is the conceptual scale for button placement
+            let btnCalcCompH, btnCalcCompY;
+
+            if (btnCalcCanvasRatio > btnCalcImgRatio) {
+                btnCalcCompH = height * btnCalcScaleFactor;
+            } else {
+                const btnCalcCompW = width * btnCalcScaleFactor;
+                btnCalcCompH = btnCalcCompW / btnCalcImgRatio;
+            }
+            btnCalcCompY = (height - btnCalcCompH) / 2;
+
+            // Now, use these values to place the button exactly as it was before
+            runningPowerButton.w = width * 0.045;
+            runningPowerButton.h = powerButtonImg.height * (runningPowerButton.w / powerButtonImg.width);
+            runningPowerButton.x = (width - runningPowerButton.w) / 2;
+            runningPowerButton.y = btnCalcCompY + (btnCalcCompH * 0.616) - (runningPowerButton.h / 2);
+
+            // Draw the button
+            push();
+            const glowSize = 15 + sin(frameCount * 0.1) * 7;
+            drawingContext.shadowBlur = glowSize;
+            drawingContext.shadowColor = '#00ffff';
+            image(powerButtonImg, runningPowerButton.x, runningPowerButton.y, runningPowerButton.w, runningPowerButton.h);
+            pop();
+           }
+
+           // Handle continuous key press for smooth typing/deleting
+           handleKeyPress();
+
+           // Handle warning animation queue
+           if (warningQueue.length > 0 && millis() - lastWarningTime > WARNING_INTERVAL) {
+             const newWarning = warningQueue.shift(); // Get the next warning from the queue
+             warnings.push(newWarning);
+             lastWarningTime = millis();
+           }
+
+           // 1. Get the video rectangle for drawing the mask
+           const videoRect = getVideoRect();
+
+           // 2. Draw the number mask over the video area
+           let zonesWithFigures = [false, false, false, false];
+           if (segmentation && segmentation.mask) {
+             zonesWithFigures = drawNumberMask(videoRect);
+           }
+
+          // 3. Update box states based on detection (State Machine Logic)
+          for (let i = 0; i < boxes.length; i++) {
+            const box = boxes[i];
+            const isTriggered = zonesWithFigures[i];
+
+            // --- State 1: Collecting ---
+            // If triggered and not yet complete, collect data.
+            if (isTriggered && !box.isComplete) {
+              if (box.progress < 100) {
+                box.progress += progressIncrement;
+              }
+              if (box.progress >= 100) {
+                box.progress = 100;
+                box.isComplete = true; // Transition to "Complete" state
+              }
+            }
+
+            // --- Animation Logic (based on current state) ---
+            // If the box is complete OR not triggered, it should close.
+            if (box.isComplete || !isTriggered) {
+              // Animation: Close
+              if (box.position === 'bottom') {
+                box.targetY = height;
+              } else {
+                box.targetY = -box.height;
+              }
+              box.targetLidAngle = 0;
+            }
+            // Otherwise (it must be triggered and not complete), it should open.
+            else {
+              // Animation: Open
+              if (box.position === 'bottom') {
+                box.targetY = height - box.height - 20;
+              } else {
+                box.targetY = 20;
+              }
+              box.targetLidAngle = -PI / 3;
+            }
+          }
+
+           // 4. 绘制时间戳
+           drawTimestamp();
+
+           // 5. 绘制交互盒子
+           drawBoxes();
+
+    // --- File/Zip/Link Button Logic ---
+    const buttonSize = width * 0.066; // This was previously increased by 20%
+    if (storedAnimations.length === 0) {
+        // Before any animation is stored, show the game-starting icons
+        if (zipFileImg) {
+            zipFileButton.w = buttonSize;
+            zipFileButton.h = buttonSize;
+            zipFileButton.x = width * 0.25;
+            zipFileButton.y = height * 0.25;
+            image(zipFileImg, zipFileButton.x, zipFileButton.y, zipFileButton.w, zipFileButton.h);
+
+            if (runningSubState === 'zipClicked' || runningSubState === 'fileClicked') {
+                if (fileImg) {
+                    fileButton.w = buttonSize;
+                    fileButton.h = buttonSize;
+                    fileButton.x = zipFileButton.x + zipFileButton.w + 20;
+                    fileButton.y = zipFileButton.y;
+                    image(fileImg, fileButton.x, fileButton.y, fileButton.w, fileButton.h);
+                }
+            }
+        }
+    } else {
+        // After an animation is stored, show the Human.zip button
+        if (fileImg) {
+            const iconX = width * 0.25; // Keep position consistent
+            const iconY = height * 0.25;
+            fileButton.w = buttonSize;
+            fileButton.h = buttonSize;
+            fileButton.x = iconX;
+            fileButton.y = iconY;
+            image(fileImg, fileButton.x, fileButton.y, fileButton.w, fileButton.h);
+
+            // Draw the text "Human.zip" below it
+            push();
+            textFont(typingFont);
+            textSize(15);
+            fill(255);
+            textAlign(CENTER, TOP);
+            text("Human.zip", fileButton.x + fileButton.w / 2, fileButton.y + fileButton.h + 5);
+            pop();
+        }
+    }
+
+    // Draw the new robot button if there are any stored animations
+    if (storedAnimations.length > 0) {
+        robotButton.w = buttonSize * 1.32; // Increased size by 20% (1.1 * 1.2)
+        robotButton.h = buttonSize * 1.32; // Increased size by 20% (1.1 * 1.2)
+        robotButton.x = width * 0.8 - robotButton.w; // 20% from right
+        robotButton.y = height * 0.2; // 20% from top
+        image(robotImg, robotButton.x, robotButton.y, robotButton.w, robotButton.h);
+    }
+
+    drawStoredAnimations();
+
+  // --- Popup Overlay ---
+  if (runningSubState === 'fileClicked') {
+    if (popupState === 'punishing' && warnings.length === 0 && warningQueue.length === 0) {
+      popupState = previousPopupState; // Restore the popup
+      previousPopupState = 'none'; // Reset
+    }
+
+    if (popupState !== 'none' && popupState !== 'punishing') {
+      switch (popupState) {
+        case 'welcome':
+          if (popupImg) {
+            const imgWidth = popupImg.width * popupScale;
+            const imgHeight = popupImg.height * popupScale;
+            const imgX = (width - imgWidth) / 2;
+            const imgY = (height - imgHeight) / 2;
+            image(popupImg, imgX, imgY, imgWidth, imgHeight);
+
+            if (okButtonImg) {
+              const okBtnWidth = okButtonImg.width * okButtonScale;
+              const okBtnHeight = okButtonImg.height * okButtonScale;
+              const okBtnX = (width - okBtnWidth) / 2;
+              const okBtnY = imgY + imgHeight + (imgHeight * okButtonOffsetY);
+              image(okButtonImg, okBtnX, okBtnY, okBtnWidth, okBtnHeight);
+            }
+
+            if (closeButtonImg) {
+              const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+              const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+              const closeBtnX = imgX + imgWidth - closeBtnWidth;
+              const closeBtnY = imgY;
+              image(closeButtonImg, closeBtnX, closeBtnY, closeBtnWidth, closeBtnHeight);
+            }
+          }
+          break;
+        case 'question1':
+          if (question1Img) {
+            const imgWidth = question1Img.width * question1PopupScale;
+            const imgHeight = question1Img.height * question1PopupScale;
+            const imgX = (width - imgWidth) / 2;
+            const imgY = (height - imgHeight) / 2;
+            image(question1Img, imgX, imgY, imgWidth, imgHeight);
+
+            push();
+            textFont(typingFont);
+            textSize(24); // Increased font size
+            fill(0);
+            textAlign(LEFT, TOP);
+
+            const textBox = {
+              x: imgX + imgWidth * questionInputOffsetX,
+              y: imgY + imgHeight * questionInputOffsetY,
+              w: imgWidth * 0.7,
+              h: imgHeight * 0.15
+            };
+
+            text(question1_answer, textBox.x, textBox.y);
+
+            // Restore the blinking cursor
+            if (frameCount % 60 < 30) {
+              push();
+              stroke(0); // Explicitly set stroke color for cursor
+              strokeWeight(1);
+              const cursorX = textBox.x + textWidth(question1_answer);
+              line(cursorX, textBox.y, cursorX, textBox.y + 24);
+              pop();
+            }
+            pop();
+
+            if (nextButtonImg) {
+              const nextBtnWidth = nextButtonImg.width * nextButtonScale;
+              const nextBtnHeight = nextButtonImg.height * nextButtonScale;
+              const nextBtnX = (width - nextBtnWidth) / 2;
+              const nextBtnY = imgY + imgHeight + (imgHeight * okButtonOffsetY);
+              image(nextButtonImg, nextBtnX, nextBtnY, nextBtnWidth, nextBtnHeight);
+            }
+
+            if (closeButtonImg) {
+              const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+              const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+              const closeBtnX = imgX + imgWidth - closeBtnWidth;
+              const closeBtnY = imgY;
+              image(closeButtonImg, closeBtnX, closeBtnY, closeBtnWidth, closeBtnHeight);
+            }
+          }
+          break;
+        case 'question2':
+          if (question2Img) {
+            const imgWidth = question2Img.width * question2PopupScale;
+            const imgHeight = question2Img.height * question2PopupScale;
+            const imgX = (width - imgWidth) / 2;
+            const imgY = (height - imgHeight) / 2;
+            image(question2Img, imgX, imgY, imgWidth, imgHeight);
+
+            push();
+            textFont(typingFont);
+            textSize(24); // Increased font size
+            fill(0);
+            textAlign(LEFT, TOP);
+
+            const textBox = {
+              x: imgX + imgWidth * questionInputOffsetX,
+              y: imgY + imgHeight * questionInputOffsetY,
+              w: imgWidth * 0.7,
+              h: imgHeight * 0.15
+            };
+
+            text(question2_answer, textBox.x, textBox.y);
+
+            if (frameCount % 60 < 30) {
+              push();
+              stroke(0);
+              strokeWeight(1);
+              const cursorX = textBox.x + textWidth(question2_answer);
+              line(cursorX, textBox.y, cursorX, textBox.y + 24);
+              pop();
+            }
+            pop();
+
+            if (nextButtonImg) {
+              const nextBtnWidth = nextButtonImg.width * nextButtonScale;
+              const nextBtnHeight = nextButtonImg.height * nextButtonScale;
+              const nextBtnX = (width - nextBtnWidth) / 2;
+              const nextBtnY = imgY + imgHeight + (imgHeight * okButtonOffsetY);
+              image(nextButtonImg, nextBtnX, nextBtnY, nextBtnWidth, nextBtnHeight);
+            }
+
+            if (closeButtonImg) {
+              const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+              const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+              const closeBtnX = imgX + imgWidth - closeBtnWidth;
+              const closeBtnY = imgY;
+              image(closeButtonImg, closeBtnX, closeBtnY, closeBtnWidth, closeBtnHeight);
+            }
+          }
+          break;
+        case 'multiChoiceQuestion':
+          if (mcqPopupImg) {
+            const imgWidth = mcqPopupImg.width * question2PopupScale; // Use same scale for consistency
+            const imgHeight = mcqPopupImg.height * question2PopupScale;
+            const imgX = (width - imgWidth) / 2;
+            const imgY = (height - imgHeight) / 2;
+            image(mcqPopupImg, imgX, imgY, imgWidth, imgHeight);
+
+            // Draw the current buttons
+            if (closeButtonImg) {
+              const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+              const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+              const closeBtnX = imgX + imgWidth - closeBtnWidth;
+              const closeBtnY = imgY;
+              image(closeButtonImg, closeBtnX, closeBtnY, closeBtnWidth, closeBtnHeight);
+            }
+
+            for (const btn of currentButtons) {
+              push();
+              let currentScale = 1;
+              if (btn.isAnimated) {
+                // Create a pulsating effect
+                currentScale = 1.0 + sin(frameCount * 0.1 + btn.x) * 0.13; // Add btn.x to desynchronize animations
+                translate(btn.x + btn.w / 2, btn.y + btn.h / 2);
+                scale(currentScale);
+                translate(-(btn.x + btn.w / 2), -(btn.y + btn.h / 2));
+              }
+
+              if (btn.type === 'red') {
+                image(emptyButtonImg, btn.x, btn.y, btn.w, btn.h);
+                // Text needs to be handled carefully with the scaling transformation
+                push();
+                fill(255, 0, 0);
+                textSize(32);
+                textAlign(CENTER, CENTER);
+                textFont(typingFont);
+                // Adjust text position to be centered within the scaled button
+                text(btn.value, btn.x + btn.w / 2, btn.y + btn.h / 2);
+                pop();
+              } else {
+                image(btn.img, btn.x, btn.y, btn.w, btn.h);
+              }
+              pop(); // Restore matrix state
+            }
+          }
+          break;
+      }
+    }
+  }
+
+           // Draw warnings on top of everything
+           for (const warning of warnings) {
+             push();
+             const scaleFactor = 1.0 + sin(frameCount * 0.1 + warning.id) * 0.15;
+             const centerX = warning.x + warning.w / 2;
+             const centerY = warning.y + warning.h / 2;
+             
+             translate(centerX, centerY);
+             scale(scaleFactor);
+             translate(-centerX, -centerY);
+
+             image(warningImg, warning.x, warning.y, warning.w, warning.h);
+
+             const okBtn = warning.okButton;
+             image(okButtonImg, okBtn.x, okBtn.y, okBtn.w, okBtn.h);
+             pop();
+           }
+
+    updateCircularText();
+
+}
+
+     function drawTimestamp() {
+        const now = new Date();
+        const timeZone = 'America/New_York';
+
+        // Formatter for the time part (e.g., 09:30:55 PM)
+        const timeFormatter = new Intl.DateTimeFormat('en-US', {
+          timeZone,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: true,
+        });
+
+        // Formatter for the date part (e.g., 2026/04/02)
+        const dateFormatter = new Intl.DateTimeFormat('en-CA', { // 'en-CA' gives YYYY-MM-DD which is easy to replace
+          timeZone,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        });
+        
+        const timeString = timeFormatter.format(now);
+        const dateString = dateFormatter.format(now).replace(/-/g, '/'); // Change YYYY-MM-DD to YYYY/MM/DD
+        const displayString = `${dateString} ${timeString}`;
+
+        const x = width * 0.70; // 30% from the right edge
+        const y = height * 0.86; // 20% from the bottom edge
+
+        push();
+        textFont(typingFont);
+        textSize(19);
+        fill(0, 255, 255);
+        drawingContext.shadowBlur = 10;
+        drawingContext.shadowColor = '#00ffff';
+        noStroke();
+        textAlign(LEFT, TOP);
+
+        text(displayString, x, y);
+
+        // Update the clickable area for the time
+        const timeTextWidth = textWidth(displayString);
+        const timeTextHeight = 19; // Font size
+        timeClickableArea = { x: x, y: y, w: timeTextWidth, h: timeTextHeight };
+        pop();
+    }
+
+     function drawMirroredVideo() {
+      const { x: drawX, y: drawY, w: drawWidth, h: drawHeight } = getVideoRect();
+
+      push();
+      if (mirrorMode) {
+        translate(drawX + drawWidth, drawY);
+        scale(-1, 1);
+        // image(video, 0, 0, drawWidth, drawHeight);
+      } else {
+        // image(video, drawX, drawY, drawWidth, drawHeight);
+      }
+      pop();
+    }
+
+     function drawNumberMask(videoRect) {
+        if (!segmentation || !segmentation.mask || personPixels.length === 0) {
+          return [false, false, false, false];
+        }
+
+        const { x: offsetX, y: offsetY, w: drawWidth, h: drawHeight } = videoRect;
+        const sx = drawWidth / segmentation.mask.width;
+        const sy = drawHeight / segmentation.mask.height;
+
+        let zonesWithFigures = [false, false, false, false];
+
+        push();
+        drawingContext.shadowBlur = 15;
+        drawingContext.shadowColor = '#00ffff';
+        fill(255);
+        noStroke();
+        textSize(cellSize);
+        textFont(typingFont);
+
+        /*
+        for (let i = 0; i < textBuffer.length && i < personPixels.length; i++) {
+          const { x, y } = personPixels[i];
+          const char = textBuffer.charAt(i);
+
+          const drawX = (x * sx) + offsetX;
+          const drawY = (y * sy) + offsetY;
+
+          text(char, drawX, drawY);
+
+          // Check trigger zones
+          for (let j = 0; j < boxes.length; j++) {
+            if (drawX >= boxes[j].triggerZone.start && drawX < boxes[j].triggerZone.end) {
+              zonesWithFigures[j] = true;
+            }
+          }
+        }
+
+        if (textBuffer.length < personPixels.length) {
+          if (frameCount % 60 < 30) {
+            const { x, y } = personPixels[textBuffer.length];
+            const drawX = (x * sx) + offsetX;
+            const drawY = (y * sy) + offsetY;
+            text('_', drawX, drawY);
+          }
+        }
+        */
+
+        drawingContext.shadowBlur = 0;
+        pop();
+
+        return zonesWithFigures;
+      }
+
+       function drawComputerImage() {
+      if (!computerImg) return null;
+
+      const imgRatio = computerImg.width / computerImg.height;
+      const canvasRatio = width / height;
+      let drawWidth, drawHeight, x, y;
+      const scaleFactor = 1.58; // 1.64 * 0.97
+
+      if (canvasRatio > imgRatio) {
+        drawHeight = height * scaleFactor;
+        drawWidth = drawHeight * imgRatio;
+      } else {
+        drawWidth = width * scaleFactor;
+        drawHeight = drawWidth / imgRatio;
+      }
+
+      // Center the oversized image and move it up
+      x = (width - drawWidth) / 2;
+      y = (height - drawHeight) / 2 - (height * 0.038); // Move up by 2%
+
+      image(computerImg, x, y, drawWidth, drawHeight);
+
+      return { x, y, w: drawWidth, h: drawHeight };
+    }
+
+       function drawBoxes() {
+        for (const box of boxes) {
+          // If a box is complete and has slid off-screen, reset it.
+          if (box.isComplete && ((box.position === 'bottom' && box.y >= height) || (box.position === 'top' && box.y <= -box.height))) {
+            box.progress = 0;
+            box.isComplete = false;
+          }
+
+          // Animate box position and lid angle
+          box.y += (box.targetY - box.y) * 0.05;
+          box.lidAngle += (box.targetLidAngle - box.lidAngle) * 0.05;
+
+          // Don't draw if it's fully off-screen
+          if ((box.position === 'bottom' && box.y > height - 1) || (box.position === 'top' && box.y < -box.height + 1)) {
+            continue;
+          }
+
+          push();
+          
+          const primaryColor = box.isComplete ? color('#FE2D55') : color(0, 255, 255);
+          const shadowColor = box.isComplete ? '#FE2D55' : '#00ffff';
+
+          // --- Style for the border ---
+          noFill();
+          strokeWeight(5);
+          stroke(primaryColor);
+          drawingContext.shadowBlur = 20;
+          drawingContext.shadowColor = shadowColor;
+
+          // --- Main Box Border ---
+          rect(box.x, box.y, box.width, box.height);
+          
+          // --- Progress Bar ---
+          const progressWidth = (box.width / 100) * box.progress;
+          noStroke();
+          fill(primaryColor);
+          rect(box.x, box.y, progressWidth, box.height);
+
+
+          // --- Percentage Text ---
+          fill(255); // White text
+          noStroke();
+          textFont(timeFont);
+          textSize(18);
+          textAlign(CENTER, CENTER);
+          text(`${Math.floor(box.progress)}%`, box.x + box.width / 2, box.y + box.height / 2);
+
+
+          // --- Lids ---
+          stroke(primaryColor);
+          noFill();
+          strokeWeight(5);
+          
+          let lidWidth = box.width / 2;
+
+          if (box.position === 'bottom') {
+            // Left Lid
+            push();
+            translate(box.x, box.y);
+            rotate(box.lidAngle);
+            rect(0, -5, lidWidth, 5);
+            pop();
+
+            // Right Lid
+            push();
+            translate(box.x + box.width, box.y);
+            rotate(-box.lidAngle);
+            rect(-lidWidth, -5, lidWidth, 5);
+            pop();
+          } else { // Top position
+            // Left Lid
+            push();
+            translate(box.x, box.y + box.height);
+            rotate(-box.lidAngle);
+            rect(0, 0, lidWidth, 5);
+            pop();
+
+            // Right Lid
+            push();
+            translate(box.x + box.width, box.y + box.height);
+            rotate(box.lidAngle);
+            rect(-lidWidth, 0, lidWidth, 5);
+            pop();
+          }
+
+          drawingContext.shadowBlur = 0;
+          pop();
+        }
+      }
+
+     function windowResized() { 
+       resizeCanvas(windowWidth, windowHeight);
+
+       // Recalculate properties for all boxes
+       const boxWidth = width * 0.15;
+       const boxHeight = height * 0.15;
+       const eighth = width / 8;
+
+       // Box 1
+       boxes[0].width = boxWidth;
+       boxes[0].height = boxHeight;
+       boxes[0].triggerZone = { start: 0, end: eighth };
+
+       // Box 2
+       boxes[1].width = boxWidth;
+       boxes[1].height = boxHeight;
+       boxes[1].x = eighth * 2 + (eighth - boxWidth) / 2;
+       boxes[1].triggerZone = { start: eighth * 2, end: eighth * 3 };
+
+       // Box 3
+       boxes[2].width = boxWidth;
+       boxes[2].height = boxHeight;
+       boxes[2].x = eighth * 5 + (eighth - boxWidth) / 2;
+       boxes[2].triggerZone = { start: eighth * 5, end: eighth * 6 };
+
+       // Box 4
+       boxes[3].width = boxWidth;
+       boxes[3].height = boxHeight;
+       boxes[3].x = width - eighth * 2 + (eighth - boxWidth) / 2;
+       boxes[3].triggerZone = { start: eighth * 6, end: eighth * 7 };
+
+       // Reset states
+       for (const box of boxes) {
+         if (box.position === 'bottom') {
+           box.y = height;
+           box.targetY = height;
+         } else {
+           box.y = -box.height;
+           box.targetY = -box.height;
+         }
+         box.lidAngle = 0;
+         box.targetLidAngle = 0;
+         box.progress = 0;
+         box.isComplete = false;
+       }
+     } 
+
+    function drawStartScreen() {
+      hideAllAnimations();
+      background(0);
+
+      if (smallComputerImg && powerButtonImg) {
+        // 1. Draw the small computer background first
+        const compWidth = width * 0.6; // Reverted to original size
+        const compHeight = smallComputerImg.height * (compWidth / smallComputerImg.width);
+        const compX = (width - compWidth) / 2;
+        const compY = (height - compHeight) / 2;
+        image(smallComputerImg, compX, compY, compWidth, compHeight);
+
+        // 2. Then draw the rotating text on top
+        drawP5RotatingText(compY);
+
+        // 3. Finally, draw the glowing power button
+        const btnWidth = compWidth * 0.035; // 4% of computer width
+        const btnHeight = powerButtonImg.height * (btnWidth / powerButtonImg.width);
+        const btnX = (width - btnWidth) / 2;
+        const btnY = compY + compHeight * 0.55; // Moved up another 5%
+
+        push();
+        const glowSize = 20 + sin(frameCount * 0.1) * 10;
+        drawingContext.shadowBlur = glowSize;
+        drawingContext.shadowColor = '#00ffff';
+        image(powerButtonImg, btnX, btnY, btnWidth, btnHeight);
+        pop();
+      }
+    }
+
+    function drawFadingOutScreen() {
+      // First, draw the last frame of the running screen so it doesn't flicker
+      drawRunningScreen();
+
+      // Then, draw a black rectangle that fades in
+      fadeOutAlpha += 10; // Increase fade speed
+      fill(0, fadeOutAlpha);
+      noStroke();
+      rect(0, 0, width, height);
+
+      // When the fade is complete, reset the state and switch to the start screen
+      if (fadeOutAlpha >= 255) {
+        appState = 'start';
+        // Reset all necessary states
+        popupState = 'none';
+        textBuffer = '';
+        warnings = [];
+        warningQueue = [];
+        currentMultiChoiceIndex = 0;
+        currentButtons = [];
+        collectedInputs = [];
+        runningSubState = 'initial'; // Also reset the sub-state
+      }
+    }
+
+    function drawLoadingFadeOutScreen() {
+      // First, draw the last frame of the loading screen
+      drawLoadingScreenContent();
+
+      // Then, draw a black rectangle that fades in
+      fadeOutAlpha += 10; // Increase fade speed
+      fill(0, fadeOutAlpha);
+      noStroke();
+      rect(0, 0, width, height);
+
+      // When the fade is complete, switch to the running state
+      if (fadeOutAlpha >= 255) {
+        appState = 'running';
+        runningSubState = 'initial'; // Start with the new zip file state
+        popupState = 'none'; // Ensure no popups appear immediately
+        if (segmentation && segmentation.mask) {
+          updatePersonPixels(); // Initial cache generation before running
+        }
+      }
+    }
+
+    function drawP5RotatingText(computerTopY) {
+      const textContent = "MovementOnline,MovementOnline,MovementOnline.";
+      const centerX = width / 2;
+      const centerY = computerTopY + height * 0.20;
+      const radiusX = width * 0.11;
+      const radiusY = 25;
+
+      const rotationSpeed = 0.01;
+      const startAngle = frameCount * rotationSpeed;
+
+      push();
+      textFont(typingFont);
+
+      let chars = [];
+      for (let i = 0; i < textContent.length; i++) {
+        const angle = startAngle + map(i, 0, textContent.length, 0, -TWO_PI);
+        const perspective = sin(angle);
+        chars.push({
+          char: textContent[i],
+          x: centerX + radiusX * cos(angle),
+          y: centerY + radiusY * perspective,
+          z: perspective, // Use sin(angle) as the depth for sorting
+          size: map(perspective, -1, 1, 18, 30),
+          alpha: map(perspective, -1, 1, 120, 255)
+        });
+      }
+
+      // Sort characters by depth (z value) so farther ones are drawn first
+      chars.sort((a, b) => a.z - b.z);
+
+      // Use canvas shadow for a better, more consistent glow effect
+      drawingContext.shadowBlur = 8;
+      drawingContext.shadowColor = '#00ffff';
+
+      for (const c of chars) {
+        textSize(c.size);
+        fill(0, 255, 255, c.alpha);
+        text(c.char, c.x, c.y);
+      }
+
+      drawingContext.shadowBlur = 0; // Reset shadow
+      pop();
+    }
+
+    function triggerWarningSequence() {
+      warnings = [];
+      warningQueue = [];
+      const numWarnings = floor(random(1, 6)); // 1 to 5 warnings
+
+      for (let i = 0; i < numWarnings; i++) {
+        const warnWidth = width * warningScale;
+        const warnHeight = (warningImg.height / warningImg.width) * warnWidth;
+        
+        // Ensure popups don't go off-screen
+        const x = random(0, width - warnWidth);
+        const y = random(0, height - warnHeight - 50); // Leave space for OK button
+
+        const okBtnWidth = okButtonImg.width * 0.3; // Smaller OK button for warnings
+        const okBtnHeight = okButtonImg.height * 0.3;
+        const okBtnX = x + (warnWidth - okBtnWidth) / 2;
+        const okBtnY = y + warnHeight + 5;
+
+        warningQueue.push({
+          id: i,
+          x: x,
+          y: y,
+          w: warnWidth,
+          h: warnHeight,
+          okButton: {
+            x: okBtnX,
+            y: okBtnY,
+            w: okBtnWidth,
+            h: okBtnHeight
+          }
+        });
+      }
+      lastWarningTime = millis();
+    }
+
+    function mousePressed() {
+      // Handle clicks on warning OK buttons first, as they are on top
+      for (let i = warnings.length - 1; i >= 0; i--) {
+        const warning = warnings[i];
+        const okBtn = warning.okButton;
+
+        // Re-calculate the scale to get the correct clickable area for the animated button
+        const scaleFactor = 1.0 + sin(frameCount * 0.1 + warning.id) * 0.15;
+        const centerX = warning.x + warning.w / 2;
+        const centerY = warning.y + warning.h / 2;
+
+        const scaledOkW = okBtn.w * scaleFactor;
+        const scaledOkH = okBtn.h * scaleFactor;
+        // Calculate the new top-left corner of the button after scaling from the warning's center
+        const scaledOkX = centerX + (okBtn.x - centerX) * scaleFactor;
+        const scaledOkY = centerY + (okBtn.y - centerY) * scaleFactor;
+
+        if (mouseX > scaledOkX && mouseX < scaledOkX + scaledOkW &&
+          mouseY > scaledOkY && mouseY < scaledOkY + scaledOkH) {
+          warnings.splice(i, 1); // Remove this warning
+          return; // Consume the click
+        }
+      }
+
+      if (appState === 'start' && powerButtonImg) {
+        const compWidth = width * 0.6; // Reverted to original size
+        const compHeight = smallComputerImg.height * (compWidth / smallComputerImg.width);
+        const compY = (height - compHeight) / 2;
+        const btnWidth = compWidth * 0.04;
+        const btnHeight = powerButtonImg.height * (btnWidth / powerButtonImg.width);
+        const btnX = (width - btnWidth) / 2;
+        const btnY = compY + compHeight * 0.53;
+
+        if (mouseX > btnX && mouseX < btnX + btnWidth && mouseY > btnY && mouseY < btnY + btnHeight) {
+          appState = 'loading';
+          loadingStartTime = millis();
+          return;
+        }
+      } else if (appState === 'running') {
+
+        // Check for running power button click first
+        if (mouseX > runningPowerButton.x && mouseX < runningPowerButton.x + runningPowerButton.w &&
+          mouseY > runningPowerButton.y && mouseY < runningPowerButton.y + runningPowerButton.h) {
+          appState = 'fadingOut';
+          fadeOutAlpha = 0; // Start the fade
+          return;
+        }
+
+        // Handle click on the time
+        if (mouseX > timeClickableArea.x && mouseX < timeClickableArea.x + timeClickableArea.w &&
+          mouseY > timeClickableArea.y && mouseY < timeClickableArea.y + timeClickableArea.h) {
+          const iframeW = width * 0.5; // 50% of screen width
+          const iframeH = height * 0.7; // 70% of screen height
+          const iframeX = (width - iframeW) / 2;
+          const iframeY = (height - iframeH) / 2;
+          openIframe({
+            url: 'time/index.html',
+            x: iframeX,
+            y: iframeY,
+            w: iframeW,
+            h: iframeH,
+            scale: 0.8
+          });
+          return;
+        }
+
+        // --- TOP-LEVEL BUTTON CLICKS (Always active when visible) ---
+
+        // Handle click on the robot button to restart the flow
+        if (storedAnimations.length > 0 && mouseX > robotButton.x && mouseX < robotButton.x + robotButton.w &&
+            mouseY > robotButton.y && mouseY < robotButton.y + robotButton.h) {
+            popupState = 'welcome';
+            collectedInputs = [];
+            currentMultiChoiceIndex = 0;
+            runningSubState = 'fileClicked'; // Set the state to start the game flow
+            // Hide the live animation while a new one is being made
+            circularTextContainer.style('display', 'none');
+            return;
+        }
+
+        // Handle click on the evolved "Human.zip" button
+        if (storedAnimations.length > 0 && mouseX > fileButton.x && mouseX < fileButton.x + fileButton.w &&
+            mouseY > fileButton.y && mouseY < fileButton.y + fileButton.h) {
+            const screenRect = getVideoRect();
+            openIframe({
+                url: 'https://sissiiii.github.io/emojihuman/',
+                x: screenRect.x,
+                y: screenRect.y,
+                w: screenRect.w,
+                h: screenRect.h
+            });
+            return;
+        }
+
+
+        // --- STATE-DEPENDENT CLICKS ---
+
+        switch (runningSubState) {
+          case 'initial':
+          case 'zipClicked':
+            // Handle double-click on zip file to show file icon
+            if (mouseX > zipFileButton.x && mouseX < zipFileButton.x + zipFileButton.w &&
+              mouseY > zipFileButton.y && mouseY < zipFileButton.y + zipFileButton.h) {
+              const currentTime = millis();
+              if (currentTime - lastZipClickTime < DOUBLE_CLICK_INTERVAL) {
+                runningSubState = 'zipClicked';
+              }
+              lastZipClickTime = currentTime;
+              return;
+            }
+
+            // Handle click on the *initial* file button to start the game
+            if (runningSubState === 'zipClicked' && storedAnimations.length === 0 && mouseX > fileButton.x && mouseX < fileButton.x + fileButton.w &&
+                mouseY > fileButton.y && mouseY < fileButton.y + fileButton.h) {
+                runningSubState = 'fileClicked';
+                popupState = 'welcome';
+                popupStartTime = millis();
+                return;
+            }
+            break;
+
+          case 'fileClicked':
+            handlePopupClicks();
+            break;
+        }
+      }
+    }
+
+    function handlePopupClicks() {
+      switch (popupState) {
+        case 'welcome': {
+          const imgWidth = popupImg.width * popupScale;
+          const imgHeight = popupImg.height * popupScale;
+          const imgX = (width - imgWidth) / 2;
+          const imgY = (height - imgHeight) / 2;
+
+          // Check for OK button click
+          const okBtnWidth = okButtonImg.width * okButtonScale;
+          const okBtnHeight = okButtonImg.height * okButtonScale;
+          const okBtnX = (width - okBtnWidth) / 2;
+          const okBtnY = imgY + imgHeight + (imgHeight * okButtonOffsetY);
+          if (mouseX > okBtnX && mouseX < okBtnX + okBtnWidth && mouseY > okBtnY && mouseY < okBtnY + okBtnHeight) {
+            popupState = 'question1';
+            return;
+          }
+
+          // Check for Close button click
+          const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+          const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+          const closeBtnX = imgX + imgWidth - closeBtnWidth;
+          const closeBtnY = imgY;
+          if (mouseX > closeBtnX && mouseX < closeBtnX + closeBtnWidth && mouseY > closeBtnY && mouseY < closeBtnY + closeBtnHeight) {
+            previousPopupState = popupState;
+            popupState = 'punishing';
+            triggerWarningSequence();
+            return;
+          }
+          break;
+        }
+        case 'question1': {
+          const imgWidth = question1Img.width * question1PopupScale;
+          const imgHeight = question1Img.height * question1PopupScale;
+          const imgX = (width - imgWidth) / 2;
+          const imgY = (height - imgHeight) / 2;
+
+          // Check for Next button click
+          const nextBtnWidth = nextButtonImg.width * nextButtonScale;
+          const nextBtnHeight = nextButtonImg.height * nextButtonScale;
+          const nextBtnX = (width - nextBtnWidth) / 2;
+          const nextBtnY = imgY + imgHeight + (imgHeight * okButtonOffsetY);
+          if (mouseX > nextBtnX && mouseX < nextBtnX + nextBtnWidth && mouseY > nextBtnY && mouseY < nextBtnY + nextBtnHeight) {
+            if (question1_answer) collectedInputs.push(question1_answer);
+            question1_answer = ''; // Clear after collecting
+            popupState = 'question2';
+            return;
+          }
+
+          // Check for Close button click
+          const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+          const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+          const closeBtnX = imgX + imgWidth - closeBtnWidth;
+          const closeBtnY = imgY;
+          if (mouseX > closeBtnX && mouseX < closeBtnX + closeBtnWidth && mouseY > closeBtnY && mouseY < closeBtnY + closeBtnHeight) {
+            previousPopupState = popupState;
+            popupState = 'punishing';
+            triggerWarningSequence();
+            return;
+          }
+          break;
+        }
+        case 'question2': {
+          const imgWidth = question2Img.width * question2PopupScale;
+          const imgHeight = question2Img.height * question2PopupScale;
+          const imgX = (width - imgWidth) / 2;
+          const imgY = (height - imgHeight) / 2;
+
+          // Check for Next button click
+          const nextBtnWidth = nextButtonImg.width * nextButtonScale;
+          const nextBtnHeight = nextButtonImg.height * nextButtonScale;
+          const nextBtnX = (width - nextBtnWidth) / 2;
+          const nextBtnY = imgY + imgHeight + (imgHeight * okButtonOffsetY);
+          if (mouseX > nextBtnX && mouseX < nextBtnX + nextBtnWidth && mouseY > nextBtnY && mouseY < nextBtnY + nextBtnHeight) {
+            if (question2_answer) collectedInputs.push(question2_answer);
+            question2_answer = ''; // Clear after collecting
+            popupState = 'multiChoiceQuestion';
+            currentMultiChoiceIndex = 0;
+            generateButtonsForMCQ(currentMultiChoiceIndex);
+            return;
+          }
+
+          // Check for Close button click
+          const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+          const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+          const closeBtnX = imgX + imgWidth - closeBtnWidth;
+          const closeBtnY = imgY;
+          if (mouseX > closeBtnX && mouseX < closeBtnX + closeBtnWidth && mouseY > closeBtnY && mouseY < closeBtnY + closeBtnY) {
+            previousPopupState = popupState;
+            popupState = 'punishing';
+            triggerWarningSequence();
+            return;
+          }
+          break;
+        }
+        case 'multiChoiceQuestion': {
+          // Check for Close button click FIRST
+          const imgWidth = mcqPopupImg.width * question2PopupScale;
+          const imgHeight = mcqPopupImg.height * question2PopupScale;
+          const imgX = (width - imgWidth) / 2;
+          const imgY = (height - imgHeight) / 2;
+          const closeBtnWidth = closeButtonImg.width * closeButtonScale;
+          const closeBtnHeight = closeButtonImg.height * closeButtonScale;
+          const closeBtnX = imgX + imgWidth - closeBtnWidth;
+          const closeBtnY = imgY;
+
+          if (mouseX > closeBtnX && mouseX < closeBtnX + closeBtnWidth && mouseY > closeBtnY && mouseY < closeBtnY + closeBtnHeight) {
+            previousPopupState = popupState;
+            popupState = 'punishing';
+            triggerWarningSequence();
+            return;
+          }
+
+          let redButtonsLeft = false;
+          for (let i = currentButtons.length - 1; i >= 0; i--) {
+            const btn = currentButtons[i];
+            if (mouseX > btn.x && mouseX < btn.x + btn.w && mouseY > btn.y && mouseY < btn.y + btn.h) {
+              if (btn.type === 'red') {
+                collectedInputs.push(btn.value);
+                currentButtons.splice(i, 1);
+              } else {
+                // Clicking a non-red button is a mistake, trigger punishment.
+                previousPopupState = popupState;
+                popupState = 'punishing';
+                triggerWarningSequence();
+                return; // Stop further processing for this click
+              }
+            }
+          }
+
+          // Check if any red buttons are left after the click
+          for (const btn of currentButtons) {
+            if (btn.type === 'red') {
+              redButtonsLeft = true;
+              break;
+            }
+          }
+
+          // If no red buttons are left, the level is complete.
+          if (!redButtonsLeft) {
+            currentMultiChoiceIndex++; // Advance to the next question index
+
+            // Check if there are more questions
+            if (currentMultiChoiceIndex < multiChoiceQuestions.length) {
+              generateButtonsForMCQ(currentMultiChoiceIndex); // Load the next level
+            } else {
+              // ALL questions are finished, this is the end of the round.
+              // Store the final animation.
+              if (collectedInputs.length > 0 && storedAnimations.length < MAX_STORED_ANIMATIONS) {
+                  const text = collectedInputs.join(', ') + ', ';
+                  const animSize = 250 + storedAnimations.length * 20;
+                  storedAnimations.push({
+                      text: text,
+                      x: 20 + storedAnimations.length * 30,
+                      y: 20 + storedAnimations.length * 30,
+                      w: animSize,
+                      h: animSize
+                  });
+              }
+              
+              // Reset the game state for a new round.
+              popupState = 'none';
+              collectedInputs = [];
+              currentMultiChoiceIndex = 0;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    function openIframe({ url, x, y, w, h, scale = 1.0 }) {
+      if (!activeIframe) { // Prevent creating multiple iframes
+        let iframeElementX = x;
+        let iframeElementY = y;
+        let iframeElementW = w;
+        let iframeElementH = h;
+
+        if (scale !== 1.0) {
+          iframeElementW = w / scale;
+          iframeElementH = h / scale;
+          iframeElementX = x - (iframeElementW - w) / 2;
+          iframeElementY = y - (iframeElementH - h) / 2;
+        }
+
+        activeIframe = createElement('iframe');
+        activeIframe.attribute('src', url);
+        activeIframe.position(iframeElementX, iframeElementY);
+        activeIframe.size(iframeElementW, iframeElementH);
+        activeIframe.style('border', 'none');
+
+        if (scale !== 1.0) {
+          activeIframe.style('transform', `scale(${scale})`);
+          activeIframe.style('transform-origin', 'center');
+        }
+
+        iframeCloseButton = createButton('X');
+        iframeCloseButton.position(x + w - 40, y + 10);
+        iframeCloseButton.style('background', 'url(../img/按钮空.png) no-repeat center center');
+        iframeCloseButton.style('background-size', 'contain');
+        iframeCloseButton.style('border', 'none');
+        iframeCloseButton.style('color', 'black');
+        iframeCloseButton.style('font-weight', 'bold');
+        iframeCloseButton.style('font-size', '18px');
+        iframeCloseButton.style('padding', '0');
+        iframeCloseButton.style('width', '30px');
+        iframeCloseButton.style('height', '30px');
+        iframeCloseButton.style('cursor', 'pointer');
+        iframeCloseButton.mousePressed(() => {
+          if (activeIframe) {
+            activeIframe.remove();
+            activeIframe = null;
+          }
+          if (iframeCloseButton) {
+            iframeCloseButton.remove();
+            iframeCloseButton = null;
+          }
+        });
+      }
+    }
+
+    function drawLoadingScreen() {
+      drawLoadingScreenContent();
+      // Check if 4 seconds have passed
+      if (millis() - loadingStartTime > 4000) {
+        appState = 'loadingFadeOut'; // NEW: transition to fade
+        fadeOutAlpha = 0; // Reset alpha for the new fade
+      }
+    } 
+
+    function drawLoadingScreenContent() {
+      hideAllAnimations();
+      background(0); // Black background
+
+      // Draw animated "Loading..." text with glow effect
+      push();
+      textFont(typingFont);
+      textSize(22);
+      textAlign(CENTER, CENTER);
+      let dots = '.'.repeat((floor(frameCount / 20) % 3) + 1);
+      const loadingText = `Loading${dots}`;
+
+      // Glow effect
+      fill(0, 255, 255, 150); // Semi-transparent glow color
+      drawingContext.shadowBlur = 15;
+      drawingContext.shadowColor = '#00ffff';
+      text(loadingText, width / 2, height * 0.4);
+
+      // Main text
+      fill(0, 255, 255); // Fluorescent blue
+      drawingContext.shadowBlur = 0;
+      text(loadingText, width / 2, height * 0.4);
+      pop();
+
+      if (loadingGif) {
+        const gifWidth = loadingGif.width * loadingGifScale;
+        const gifHeight = loadingGif.height * loadingGifScale;
+        image(loadingGif, (width - gifWidth) / 2, height * 0.42, gifWidth, gifHeight); // Positioned at 42% of height
+      }
+    } 
+
+     function handleKeyPress() {
+      if (keyPressState.isPressed) {
+        const now = millis();
+        const timeSincePress = now - keyPressState.pressTime;
+
+        // Check if it's time to trigger a repeat
+        if (timeSincePress > KEY_REPEAT_DELAY) {
+          const timeSinceLastRepeat = timeSincePress - KEY_REPEAT_DELAY;
+          const expectedRepeats = floor(timeSinceLastRepeat / KEY_REPEAT_RATE);
+          
+          if (expectedRepeats > keyPressState.repeatCount) {
+            // Route input based on popupState
+             if (popupState === 'question1') {
+               if (keyPressState.keyCode === BACKSPACE) {
+                 question1_answer = question1_answer.substring(0, question1_answer.length - 1);
+               } else if (keyPressState.key.length === 1) {
+                 question1_answer += keyPressState.key;
+               }
+             } else if (popupState === 'question2') {
+               if (keyPressState.keyCode === BACKSPACE) {
+                 question2_answer = question2_answer.substring(0, question2_answer.length - 1);
+               } else if (keyPressState.key.length === 1) {
+                 question2_answer += keyPressState.key;
+               }
+             } /*else {
+              if (keyPressState.keyCode === BACKSPACE) {
+                textBuffer = textBuffer.substring(0, textBuffer.length - 1);
+              } else if (keyPressState.key.length === 1) {
+                textBuffer += keyPressState.key;
+              }
+            }*/
+            keyPressState.repeatCount++;
+          }
+        }
+      }
+    }
+
+     function keyPressed() { 
+       if (appState !== 'running') return;
+
+       // Route input based on popupState
+       if (popupState === 'question1') {
+         if (keyCode === BACKSPACE) {
+           question1_answer = question1_answer.substring(0, question1_answer.length - 1);
+         } else if (key.length === 1) {
+           question1_answer += key;
+         }
+       } else if (popupState === 'question2') {
+         if (keyCode === BACKSPACE) {
+           question2_answer = question2_answer.substring(0, question2_answer.length - 1);
+         } else if (key.length === 1) {
+           question2_answer += key;
+         }
+       } /*else {
+         if (keyCode === BACKSPACE) {
+           textBuffer = textBuffer.substring(0, textBuffer.length - 1);
+         } else if (key.length === 1) {
+           textBuffer += key;
+         } else if (key === 'm' || key === 'M') {
+           mirrorMode = !mirrorMode;
+         }
+       }*/
+
+       // Set state for continuous press
+       keyPressState.key = key;
+       keyPressState.keyCode = keyCode;
+       keyPressState.isPressed = true;
+       keyPressState.pressTime = millis();
+       keyPressState.repeatCount = 0;
+     }
+
+     function keyReleased() {
+       // Reset key press state
+       keyPressState.isPressed = false;
+       keyPressState.key = null;
+       keyPressState.keyCode = null;
+       keyPressState.pressTime = 0;
+       keyPressState.repeatCount = 0;
+     } 
+
+     function generateButtonsForMCQ(questionIndex) {
+       currentButtons = [];
+       const config = multiChoiceQuestions[questionIndex];
+       const popupWidth = mcqPopupImg.width * question2PopupScale;
+       const popupHeight = mcqPopupImg.height * question2PopupScale;
+       const popupX = (width - popupWidth) / 2;
+       const popupY = (height - popupHeight) / 2;
+
+       const buttonScale = 0.35;
+       const buttonWidth = numberButtonImgs[0].width * buttonScale;
+       const buttonHeight = numberButtonImgs[0].height * buttonScale;
+
+       let positions = [];
+
+       // 1. Generate all possible positions based on layout
+       if (config.layout === 'random') {
+         const contentX = popupX + popupWidth * 0.1;
+         const contentY = popupY + popupHeight * 0.2;
+         const contentWidth = popupWidth * 0.8;
+         const contentHeight = popupHeight * 0.7;
+
+         for (let i = 0; i < config.buttonCount; i++) {
+           let pos, isOverlapping;
+           let attempts = 0;
+           do {
+             isOverlapping = false;
+             pos = {
+               x: random(contentX, contentX + contentWidth - buttonWidth),
+               y: random(contentY, contentY + contentHeight - buttonHeight),
+             };
+             for (const p of positions) {
+               if (rectsOverlap({ ...p, w: buttonWidth, h: buttonHeight }, { ...pos, w: buttonWidth, h: buttonHeight })) {
+                 isOverlapping = true;
+                 break;
+               }
+             }
+             attempts++;
+           } while (isOverlapping && attempts < 50);
+           positions.push(pos);
+         }
+       } else if (config.layout === 'compactGrid') {
+         const rows = 3;
+         const cols = 7;
+         const gridWidth = cols * buttonWidth;
+         const gridHeight = rows * buttonHeight;
+         const startX = popupX + (popupWidth - gridWidth) / 2;
+         const startY = popupY + (popupHeight - gridHeight) / 2;
+
+         for (let i = 0; i < config.buttonCount; i++) {
+           const row = floor(i / cols);
+           const col = i % cols;
+           positions.push({ x: startX + col * buttonWidth, y: startY + row * buttonHeight });
+         }
+       }
+
+       // 2. Shuffle positions and assign button types and images
+       shuffle(positions, true);
+
+       for (let i = 0; i < config.buttonCount; i++) {
+         const pos = positions[i];
+         const isRed = i < config.redButtonCount;
+
+         if (isRed) {
+           const isAnimated = i < (config.animatedRedCount || 0);
+           currentButtons.push({
+             ...pos,
+             w: buttonWidth,
+             h: buttonHeight,
+             type: 'red',
+             value: floor(random(1, 10)),
+             isAnimated: isAnimated
+           });
+         } else {
+           currentButtons.push({
+             ...pos,
+             w: buttonWidth,
+             h: buttonHeight,
+             type: 'normal',
+             img: numberButtonImgs[floor(random(numberButtonImgs.length))]
+           });
+         }
+       }
+     }
+
+     function rectsOverlap(r1, r2) {
+       return !(r2.x > r1.x + r1.w || 
+                r2.x + r2.w < r1.x || 
+                r2.y > r1.y + r1.h ||
+                r2.y + r2.h < r1.y);
+     }
+
+    function updateCircularText() {
+      let textContent = '';
+      let isVisible = false;
+      let containerX = 0;
+      let containerY = 0;
+      let containerW = 400;
+      let containerH = 400;
+
+      // Determine visibility and content based on app state
+      const isPopupVisible = runningSubState === 'fileClicked' &&
+                             (popupState === 'welcome' || popupState === 'question1' || popupState === 'question2' || popupState === 'multiChoiceQuestion');
+
+      if (isPopupVisible) {
+        isVisible = true;
+        
+        let parts = [...collectedInputs];
+        if (popupState === 'question1' && question1_answer) {
+            parts.push(question1_answer);
+        } else if (popupState === 'question2' && question2_answer) {
+            parts.push(question2_answer);
+        }
+
+        if (parts.length === 0) {
+            textContent = 'Welcome, Welcome, Welcome, ';
+        } else {
+            textContent = parts.join(', ') + ', ';
+        }
+
+        // Position above the popup
+        const popupWidth = mcqPopupImg.width * question2PopupScale;
+        const popupHeight = mcqPopupImg.height * question2PopupScale;
+        const popupY = (height - popupHeight) / 2;
+        containerW = popupWidth * 1.2;
+        containerH = containerW; // Keep it circular
+        containerX = (width - containerW) / 2;
+        containerY = popupY - containerH / 1.8;
+
+      } 
+
+      if (isVisible && textContent) {
+        // Repeat the text to ensure it's long enough for a seamless loop
+        const repeatedText = textContent.repeat(Math.ceil(80 / textContent.length));
+        textPathElement.html(repeatedText);
+
+        circularTextContainer.style('display', 'block');
+        circularTextContainer.position(containerX, containerY);
+        circularTextContainer.size(containerW, containerH);
+      } else {
+        circularTextContainer.style('display', 'none');
+      }
+    }
+
+    function drawStoredAnimations() {
+        for (let i = 0; i < storedAnimations.length; i++) {
+            const anim = storedAnimations[i];
+            const container = storedContainers[i];
+            const textPath = storedTextPaths[i];
+
+            if (container && textPath) {
+                const repeatedText = anim.text.repeat(Math.ceil(80 / anim.text.length));
+                textPath.html(repeatedText);
+
+                container.style('display', 'block');
+                container.position(anim.x, anim.y);
+                container.size(anim.w, anim.h);
+            }
+        }
+    }
+
+    function hideAllAnimations() {
+        if (circularTextContainer) circularTextContainer.style('display', 'none');
+        for (const container of storedContainers) {
+            if (container) container.style('display', 'none');
+        }
+    }
+
+
+    function drawNoiseOverlay(bounds) {
+      // 1. Calculate the constrained area for the noise
+      const noiseWidth = bounds.w * 0.7;
+      const noiseHeight = bounds.h * 0.85;
+      const noiseX = bounds.x + (bounds.w - noiseWidth) / 2;
+      const noiseY = bounds.y + (bounds.h - noiseHeight) / 2;
+
+      push();
+      // 2. Increase density (more particles)
+      for (let i = 0; i < 1000; i++) {
+        const x = noiseX + random(noiseWidth);
+        const y = noiseY + random(noiseHeight);
+        // 3. Make particles smaller
+        const size = random(1, 3);
+        // 4. Adjust color and transparency for an "old screen" feel
+        const noiseColor = color(random(100, 180), 50); // Darker, more transparent gray
+
+        noStroke();
+        fill(noiseColor);
+        rect(x, y, size, size);
+      }
+      pop();
+    }
+
+   </script> 
+ </body> 
+ </html>
